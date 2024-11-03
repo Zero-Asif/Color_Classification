@@ -6,8 +6,6 @@ from dataclasses import dataclass
 import pyperclip
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import ctypes  # For Windows API to get work area
-
 
 @dataclass
 class ColorInfo:
@@ -52,6 +50,10 @@ class ColorRecognitionApp:
         self.window_name = 'Color Recognition App'
         self.scale_factor = 1.0  # Scaling factor for image resizing
 
+        # Set fixed window size
+        self.window_width = 800  # Adjust as needed
+        self.window_height = 600  # Adjust as needed
+
         # Load and prepare color dataset
         self.colors_df = pd.read_csv(
             colors_csv_path,
@@ -77,61 +79,33 @@ class ColorRecognitionApp:
             if self.img is None:
                 messagebox.showerror("Error", f"Could not load image from {file_path}")
                 return
-            self.resize_image_to_screen()
+            self.resize_image_to_fixed_window()
             self.root.destroy()  # Close the Tkinter window
             # Proceed to run the app
             self.run()
         else:
             messagebox.showinfo("No File Selected", "No image file was selected.")
             self.root.destroy()
-    def get_work_area(self):
-        """Get the working area of the screen, excluding taskbar (Windows only)."""
-        user32 = ctypes.windll.user32
-        spi_get_work_area = 0x0030
-        class RECT(ctypes.Structure):
-            _fields_ = [('left', ctypes.c_long),
-                        ('top', ctypes.c_long),
-                        ('right', ctypes.c_long),
-                        ('bottom', ctypes.c_long)]
-        rect = RECT()
-        user32.SystemParametersInfoW(spi_get_work_area, 0, ctypes.byref(rect), 0)
-        work_width = rect.right - rect.left
-        work_height = rect.bottom - rect.top
-        return work_width, work_height
-    def resize_image_to_screen(self):
-            """Resize the image to fit within the screen dimensions, considering taskbar height."""
-            # Get screen dimensions
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
 
-            # Get work area dimensions (excluding taskbar)
-            try:
-                work_width, work_height = self.get_work_area()
-            except Exception as e:
-                print(f"Could not get work area dimensions: {e}")
-                # If not on Windows or an error occurs, fall back to screen dimensions minus an estimated taskbar height
-                work_width, work_height = screen_width, screen_height - 100  # Subtract 100 pixels as a fallback
+    def resize_image_to_fixed_window(self):
+        """Resize the image to fit within the fixed window dimensions."""
+        img_height, img_width = self.img.shape[:2]
 
-            img_height, img_width = self.img.shape[:2]
+        # Determine the scaling factor
+        scale_width = self.window_width / img_width
+        scale_height = self.window_height / img_height
+        self.scale_factor = min(scale_width, scale_height)
 
-            # Determine the scaling factor
-            scale_width = work_width / img_width
-            scale_height = work_height / img_height
-            self.scale_factor = min(scale_width, scale_height, 1.0)  # Do not upscale smaller images
+        new_width = int(img_width * self.scale_factor)
+        new_height = int(img_height * self.scale_factor)
+        self.img_resized = cv2.resize(self.img, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
-            if self.scale_factor < 1.0:
-                new_width = int(img_width * self.scale_factor)
-                new_height = int(img_height * self.scale_factor)
-                self.img_resized = cv2.resize(self.img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-            else:
-                self.img_resized = self.img.copy()
+        # Center the image in the window
+        self.x_offset = (self.window_width - new_width) // 2
+        self.y_offset = (self.window_height - new_height) // 2
 
     def recognize_color(self, r: int, g: int, b: int) -> ColorInfo:
-        """
-        Find the closest matching color name using Euclidean distance.
-        Returns ColorInfo object containing color details.
-        """
-        # Convert to numpy arrays for vectorized operations
+        # Existing code (unchanged)
         colors = self.colors_df[['R', 'G', 'B']].values
         query_color = np.array([r, g, b])
 
@@ -147,24 +121,25 @@ class ColorRecognitionApp:
 
     def mouse_callback(self, event, x: int, y: int, flags, param):
         """Handle mouse events."""
+        # Adjust x and y to correspond to the image coordinates
+        img_x = x - self.x_offset
+        img_y = y - self.y_offset
+
         if event == cv2.EVENT_LBUTTONDBLCLK:
-            if y < self.img_resized.shape[0] and x < self.img_resized.shape[1]:
+            if (0 <= img_x < self.img_resized.shape[1]) and (0 <= img_y < self.img_resized.shape[0]):
                 # Map the coordinates back to the original image
-                orig_x = int(x / self.scale_factor)
-                orig_y = int(y / self.scale_factor)
+                orig_x = int(img_x / self.scale_factor)
+                orig_y = int(img_y / self.scale_factor)
                 b, g, r = self.img[orig_y, orig_x]
                 self.current_color = self.recognize_color(int(r), int(g), int(b))
 
     def draw_color_info(self):
-        """Draw color information on the image."""
+        # Existing code (adjusted to draw on canvas)
         if not self.current_color:
             return
 
-        # Draw on the display image
-        img_to_draw = self.img_display
-
-        # Create color display rectangle
-        cv2.rectangle(img_to_draw, (20, 20), (750, 60),
+        # Create color display rectangle on the canvas
+        cv2.rectangle(self.canvas, (20, 20), (750, 60),
                       self.current_color.rgb[::-1], -1)
 
         # Prepare display text
@@ -176,23 +151,17 @@ class ColorRecognitionApp:
         brightness = sum(self.current_color.rgb)
         text_color = (0, 0, 0) if brightness >= 600 else (255, 255, 255)
 
-        # Draw text
-        cv2.putText(img_to_draw, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
+        # Draw text on the canvas
+        cv2.putText(self.canvas, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX,
                     0.8, text_color, 2, cv2.LINE_AA)
 
     def draw_simulation_mode(self):
-        """Draw the current simulation mode on the image."""
-        # Draw on the display image
-        img_to_draw = self.img_display
-
+        # Existing code (adjusted to draw on canvas)
         # Prepare the text
         mode_text = f"Mode: {self.simulation_mode}"
 
-        # Get image dimensions
-        height, width = img_to_draw.shape[:2]
-
         # Set position for the text (bottom left)
-        text_position = (10, height - 10)
+        text_position = (10, self.window_height - 10)
 
         # Text properties
         text_color = (255, 255, 255)  # White text
@@ -206,26 +175,24 @@ class ColorRecognitionApp:
         # Make a filled rectangle as background
         rect_start = (text_position[0], text_position[1] - text_height - baseline)
         rect_end = (text_position[0] + text_width, text_position[1] + baseline)
-        cv2.rectangle(img_to_draw, rect_start, rect_end, (0, 0, 0), -1)
+        cv2.rectangle(self.canvas, rect_start, rect_end, (0, 0, 0), -1)
 
         # Put the text
-        cv2.putText(img_to_draw, mode_text, text_position, font, font_scale, text_color, thickness, cv2.LINE_AA)
+        cv2.putText(self.canvas, mode_text, text_position, font, font_scale, text_color, thickness, cv2.LINE_AA)
 
     def apply_color_blindness_simulation(self):
-        """Apply color blindness simulation to the image."""
+        # Existing code (adjusted to work with resized image)
         # Get the transformation matrix
         matrix = COLOR_BLINDNESS_MATRICES.get(self.simulation_mode, COLOR_BLINDNESS_MATRICES['Normal'])
 
-        # Apply the matrix to the image
-        # Convert image to float32 for accurate matrix multiplication
+        # Apply the matrix to the resized image
         img_float = self.img_resized.astype(np.float32) / 255.0
         img_sim = cv2.transform(img_float, matrix)
-        # Clip values to [0,1] and convert back to uint8
         img_sim = np.clip(img_sim, 0, 1) * 255
         self.img_simulated = img_sim.astype(np.uint8)
 
     def handle_key_press(self):
-        """Handle key press events."""
+        # Existing code (unchanged)
         key = cv2.waitKey(20) & 0xFF
         if key == ord('c') and self.current_color:
             # Copy color values to clipboard
@@ -255,6 +222,9 @@ class ColorRecognitionApp:
 
     def run(self):
         """Run the application main loop."""
+        # Create a black canvas with fixed window size
+        self.canvas = np.zeros((self.window_height, self.window_width, 3), dtype=np.uint8)
+
         cv2.namedWindow(self.window_name)
         cv2.setMouseCallback(self.window_name, self.mouse_callback)
 
@@ -262,8 +232,12 @@ class ColorRecognitionApp:
         self.apply_color_blindness_simulation()
 
         while True:
-            # Copy the simulated image to display image
-            self.img_display = self.img_simulated.copy()
+            # Reset the canvas
+            self.canvas[:] = (0, 0, 0)
+
+            # Place the image on the canvas
+            self.canvas[self.y_offset:self.y_offset + self.img_resized.shape[0],
+                        self.x_offset:self.x_offset + self.img_resized.shape[1]] = self.img_simulated
 
             # Draw color info if a color is selected
             if self.current_color:
@@ -273,7 +247,7 @@ class ColorRecognitionApp:
             self.draw_simulation_mode()
 
             # Display the image
-            cv2.imshow(self.window_name, self.img_display)
+            cv2.imshow(self.window_name, self.canvas)
 
             if not self.handle_key_press():
                 break
