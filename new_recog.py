@@ -220,33 +220,86 @@ class ColorRecognitionApp:
             return False
         return True
 
+        # Add this function inside the ColorRecognitionApp class
+    def draw_help_text(self):
+        """Draw the help text based on the current simulation mode."""
+    # Define the help text for each mode
+        help_text = {
+          'Normal': [
+            "Double click for RGB, Hex value",
+            "Press 'p' for Protanopia Simulation",
+            "Press 'd' for Deuteranopia Simulation",
+            "Press 't' for Tritanopia Simulation",
+            "Press 'c' to copy values"
+          ],
+          'Protanopia': [
+            "Press 'n' for Normal Vision",
+            "Press 'd' for Deuteranopia Simulation",
+            "Press 't' for Tritanopia Simulation",
+            "Double click for RGB, Hex value",
+            "Press 'c' to copy values"
+          ],
+          'Deuteranopia': [
+            "Press 'n' for Normal Vision",
+            "Press 'p' for Protanopia Simulation",
+            "Press 't' for Tritanopia Simulation",
+            "Double click for RGB, Hex value",
+            "Press 'c' to copy values"
+          ],
+          'Tritanopia': [
+            "Press 'n' for Normal Vision",
+            "Press 'p' for Protanopia Simulation",
+            "Press 'd' for Deuteranopia Simulation",
+            "Double click for RGB, Hex value",
+            "Press 'c' to copy values"
+          ]
+        }
+
+    # Get the text for the current mode
+        lines = help_text.get(self.simulation_mode, [])
+
+    # Set starting position and font properties
+        y_position = self.window_height - 140  # Start from the bottom with an offset
+        x_position = 10  # Margin from the left
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.5  # Adjust the font scale for size 12 text
+        thickness = 1
+        line_height = 20  # Vertical spacing between lines
+
+    # Draw each line of text
+        for line in lines:
+          text_size, _ = cv2.getTextSize(line, font, font_scale, thickness)
+          cv2.putText(self.canvas, line, (x_position, y_position),
+                    font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+          y_position += line_height
+
     def run(self):
         """Run the application main loop."""
-        # Create a black canvas with fixed window size
         self.canvas = np.zeros((self.window_height, self.window_width, 3), dtype=np.uint8)
 
         cv2.namedWindow(self.window_name)
         cv2.setMouseCallback(self.window_name, self.mouse_callback)
 
-        # Apply initial simulation
+    # Apply initial simulation
         self.apply_color_blindness_simulation()
 
         while True:
-            # Reset the canvas
             self.canvas[:] = (0, 0, 0)
 
-            # Place the image on the canvas
+        # Display the image with current simulation
             self.canvas[self.y_offset:self.y_offset + self.img_resized.shape[0],
-                        self.x_offset:self.x_offset + self.img_resized.shape[1]] = self.img_simulated
+                    self.x_offset:self.x_offset + self.img_resized.shape[1]] = self.img_simulated
 
-            # Draw color info if a color is selected
+        # Display color info if selected
             if self.current_color:
                 self.draw_color_info()
 
-            # Draw the simulation mode on the image
+        # Display simulation mode
             self.draw_simulation_mode()
 
-            # Display the image
+        # Display the help text
+            self.draw_help_text()
+
             cv2.imshow(self.window_name, self.canvas)
 
             if not self.handle_key_press():
